@@ -824,10 +824,15 @@ searchQueries should be 2-4 specific Google Maps search terms that would find th
     });
 
     const claudeData = await claudeRes.json();
+    if (claudeData.error) throw new Error(claudeData.error.message || 'API error');
     const rawText = (claudeData.content ?? []).map(b => b.text || '').join('');
     let parsed;
     try {
-      parsed = JSON.parse(rawText.replace(/```json|```/g, '').trim());
+      const clean = rawText.replace(/```json|```/g, '').trim();
+      const s = clean.indexOf('{');
+      const e = clean.lastIndexOf('}');
+      if (s === -1 || e === -1) throw new Error('no JSON object in response');
+      parsed = JSON.parse(clean.slice(s, e + 1));
     } catch(e) {
       throw new Error('Could not understand AI response.');
     }
