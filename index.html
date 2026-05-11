@@ -684,6 +684,31 @@
 let userLat = null;
 let userLng = null;
 
+// Finds the first well-formed JSON object or array in text, ignoring
+// preamble/postamble. Uses bracket-depth counting so trailing text with
+// extra ] or } (e.g. "[see Google Maps]") doesn't corrupt the slice.
+function extractJSON(raw, type) {
+  const text = raw.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+  const opener = type === 'array' ? '[' : '{';
+  const closer = type === 'array' ? ']' : '}';
+  try { return JSON.parse(text); } catch {}
+  for (let pos = text.indexOf(opener); pos !== -1; pos = text.indexOf(opener, pos + 1)) {
+    let depth = 0, inStr = false, esc = false;
+    for (let i = pos; i < text.length; i++) {
+      const c = text[i];
+      if (esc) { esc = false; continue; }
+      if (inStr && c === '\\') { esc = true; continue; }
+      if (c === '"') { inStr = !inStr; continue; }
+      if (inStr) continue;
+      if (c === opener) depth++;
+      else if (c === closer && --depth === 0) {
+        try { return JSON.parse(text.slice(pos, i + 1)); } catch { break; }
+      }
+    }
+  }
+  return null;
+}
+
 function esc(str) {
   return String(str ?? '')
     .replace(/&/g, '&amp;')
@@ -709,10 +734,6 @@ function makePlaceholder(type) {
   </div>`;
 }
 
-function isValidImageUrl(url) {
-  if (!url || typeof url !== 'string') return false;
-  try { return new URL(url).protocol === 'https:'; } catch(e) { return false; }
-}
 
 function getLocation() {
   if (!navigator.geolocation) {
@@ -747,42 +768,6 @@ function hideThinking() {
   document.getElementById('thinking').style.display = 'none';
 }
 
-async function fetchImageForCard(place, index) {
-  const container = document.getElementById('card-image-' + index);
-  if (!container) return;
-  try {
-    const res = await fetch('/.netlify/functions/claude', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-5',
-        max_tokens: 400,
-        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-        messages: [{
-          role: 'user',
-          content: `Search for a photo of "${place.name}" in Melbourne, Australia. Check their official website, Google Business page, or Yelp listing. Return ONLY a JSON object with no markdown: {"imageUrl":"https://..."} with a direct URL to a photo of this specific place, or {"imageUrl":null} if not found.`
-        }]
-      })
-    });
-    const data = await res.json();
-    const text = (data.content ?? []).map(b => b.text || '').join('');
-    let imageUrl = null;
-    try {
-      const clean = text.replace(/```json|```/g, '').trim();
-      const s = clean.indexOf('{'), e = clean.lastIndexOf('}');
-      if (s !== -1 && e !== -1) imageUrl = JSON.parse(clean.slice(s, e + 1)).imageUrl || null;
-    } catch(e) {}
-
-    if (isValidImageUrl(imageUrl)) {
-      const img = new Image();
-      img.alt = place.name;
-      img.loading = 'lazy';
-      img.onerror = () => { container.innerHTML = makePlaceholder(place.type); };
-      img.onload  = () => { container.innerHTML = ''; container.appendChild(img); };
-      img.src = imageUrl;
-    }
-  } catch(e) { /* keep placeholder */ }
-}
 
 async function doSearch() {
   const query = document.getElementById('search-input').value.trim();
@@ -802,7 +787,7 @@ async function doSearch() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-5',
+        model: 'claude-sonnet-4-6',
         max_tokens: 1000,
         messages: [{
           role: 'user',
@@ -828,11 +813,8 @@ searchQueries should be 2-4 specific Google Maps search terms that would find th
     const rawText = (claudeData.content ?? []).map(b => b.text || '').join('');
     let parsed;
     try {
-      const clean = rawText.replace(/```json|```/g, '').trim();
-      const s = clean.indexOf('{');
-      const e = clean.lastIndexOf('}');
-      if (s === -1 || e === -1) throw new Error('no JSON object in response');
-      parsed = JSON.parse(clean.slice(s, e + 1));
+      parsed = extractJSON(rawText, 'object');
+      if (!parsed) throw new Error('no JSON object in response');
     } catch(e) {
       throw new Error('Could not understand AI response.');
     }
@@ -848,7 +830,7 @@ searchQueries should be 2-4 specific Google Maps search terms that would find th
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            model: 'claude-sonnet-4-5',
+            model: 'claude-sonnet-4-6',
             max_tokens: 1000,
             tools: [{ type: 'web_search_20250305', name: 'web_search' }],
             messages: [{
@@ -862,12 +844,8 @@ searchQueries should be 2-4 specific Google Maps search terms that would find th
         const pData = await placesRes.json();
         const pText = (pData.content ?? []).map(b => b.text || '').join('');
         try {
-          const pClean = pText.replace(/```json|```/g, '').trim();
-          const pStart = pClean.indexOf('[');
-          const pEnd = pClean.lastIndexOf(']');
-          if (pStart !== -1 && pEnd !== -1) {
-            allPlaces.push(...JSON.parse(pClean.slice(pStart, pEnd + 1)));
-          }
+          const places = extractJSON(pText, 'array');
+          if (Array.isArray(places)) allPlaces.push(...places);
         } catch(e) { /* skip malformed */ }
       } catch(e) { /* skip failed query */ }
     }
@@ -932,7 +910,6 @@ searchQueries should be 2-4 specific Google Maps search terms that would find th
       });
 
       grid.style.display = 'grid';
-      unique.forEach((place, i) => fetchImageForCard(place, i));
     }
 
   } catch(err) {
