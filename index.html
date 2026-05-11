@@ -755,7 +755,7 @@ async function fetchImageForCard(place, index) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-5',
         max_tokens: 400,
         tools: [{ type: 'web_search_20250305', name: 'web_search' }],
         messages: [{
@@ -802,7 +802,7 @@ async function doSearch() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-5',
         max_tokens: 1000,
         messages: [{
           role: 'user',
@@ -843,7 +843,7 @@ searchQueries should be 2-4 specific Google Maps search terms that would find th
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            model: 'claude-sonnet-4-20250514',
+            model: 'claude-sonnet-4-5',
             max_tokens: 1000,
             tools: [{ type: 'web_search_20250305', name: 'web_search' }],
             messages: [{
